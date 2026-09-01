@@ -328,7 +328,11 @@ function clampBallSpeed(ball: Body): void {
  *
  * `move` drives the player's head. `opponent` drives the AI's head — omit it
  * and the AI plays itself, which is both how a real match runs and how the
- * attract-mode demo works. Passing it is the seam for hot-seat two-player.
+ * attract-mode demo works. Passing it is hot-seat two-player.
+ *
+ * Passing it also means a person is driving that head, so it gets a person's
+ * legs: the AI is a touch slower on purpose, and inheriting that handicap
+ * would quietly make player two the worse seat.
  *
  * Deterministic: no Math.random, all jitter comes from state.seed.
  */
@@ -340,7 +344,7 @@ export function step(state: State, move: Move, opponent?: Move): State {
   s.tick += 1;
 
   moveHead(s.player, move, PLAYER_SPEED);
-  moveHead(s.ai, opponent ?? aiMove(state, "ai"), AI_SPEED);
+  moveHead(s.ai, opponent ?? aiMove(state, "ai"), opponent ? PLAYER_SPEED : AI_SPEED);
   headHead(s.player, s.ai);
 
   if (s.resetTicks > 0) {

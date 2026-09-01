@@ -53,6 +53,16 @@ body {
   white-space: nowrap;
 }
 
+/* Each side's number in its own head's colour. A bare "2 - 1" cannot tell you
+   which one you were, and that is the only thing the scoreline needs to say. */
+#score-left {
+  color: #ef5d60;
+}
+
+#score-right {
+  color: #ffd166;
+}
+
 .score {
   margin: 0;
   grid-column: 2;

@@ -5,8 +5,17 @@ import type { Move } from "./game.ts";
 import { hit, type Layout } from "./render.ts";
 
 export type Input = {
-  /** The move to apply this tick. */
+  /** The move to apply this tick. Arrow keys, or the on-screen pads. */
   move(): Move;
+  /** The second player's move. WASD only — there is one keyboard. */
+  move2(): Move;
+  /**
+   * True once WASD has been touched. That press *is* joining: there is no menu
+   * and no button, because either would have to be labelled, and the brief
+   * forbids the label. Attract mode shows both sets of keys working instead.
+   */
+  joined(): boolean;
+  forgetJoined(): void;
   /** True once any input has been seen — the attract-mode handover. */
   touched(): boolean;
   clearTouched(): void;
@@ -21,19 +30,25 @@ export function attachInput(canvas: HTMLCanvasElement): Input {
   const pointers = new Map<number, "left" | "right" | "jump">();
   let layout: Layout | null = null;
   let seen = false;
+  let joined = false;
   let coarse =
     window.matchMedia?.("(pointer: coarse)").matches ||
     "ontouchstart" in window ||
     navigator.maxTouchPoints > 0;
 
+  // Shift or caps lock would otherwise make "W" a different key from "w".
+  const key = (e: KeyboardEvent) => (e.key.length === 1 ? e.key.toLowerCase() : e.key);
+
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === " ") {
       e.preventDefault();
     }
-    keys.add(e.key);
+    const k = key(e);
+    keys.add(k);
+    if (k === "a" || k === "d" || k === "w") joined = true;
     seen = true;
   };
-  const onKeyUp = (e: KeyboardEvent) => keys.delete(e.key);
+  const onKeyUp = (e: KeyboardEvent) => keys.delete(key(e));
 
   const at = (e: PointerEvent) => {
     const r = canvas.getBoundingClientRect();
@@ -74,6 +89,10 @@ export function attachInput(canvas: HTMLCanvasElement): Input {
 
   const held = new Set<"left" | "right" | "jump">();
 
+  /** Both held is the same as neither, so a head never twitches. */
+  const axis = (left: boolean, right: boolean): -1 | 0 | 1 =>
+    left === right ? 0 : left ? -1 : 1;
+
   return {
     move(): Move {
       held.clear();
@@ -83,8 +102,14 @@ export function attachInput(canvas: HTMLCanvasElement): Input {
       const right = keys.has("ArrowRight") || held.has("right");
       const jump = keys.has(" ") || keys.has("ArrowUp") || held.has("jump");
 
-      const dx: -1 | 0 | 1 = left === right ? 0 : left ? -1 : 1;
-      return { dx, jump };
+      return { dx: axis(left, right), jump };
+    },
+    move2(): Move {
+      return { dx: axis(keys.has("a"), keys.has("d")), jump: keys.has("w") };
+    },
+    joined: () => joined,
+    forgetJoined: () => {
+      joined = false;
     },
     touched: () => seen,
     clearTouched: () => {

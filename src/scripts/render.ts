@@ -6,6 +6,8 @@
 
 import {
   BALL_R,
+  type Body,
+  type Move,
   GOAL_DEPTH,
   GOAL_TOP,
   GROUND_Y,
@@ -39,9 +41,10 @@ const LINE = "rgba(255,255,255,0.32)";
 const POST = "#f2f4f7";
 const BALL = "#fdfdfd";
 const BALL_SPOT = "#1c1c1c";
-const PLAYER_HEAD = "#ffd166";
+export const PLAYER_HEAD = "#ffd166";
 const PLAYER_RING = "#ffe9a8";
-const AI_HEAD = "#ef5d60";
+export const AI_HEAD = "#ef5d60";
+const AI_RING = "#ffb3b4";
 
 /** Beyond this the pitch stops looking like a game and starts looking like a map. */
 const MAX_PITCH_W = 1180;
@@ -87,7 +90,15 @@ export function draw(
   ctx: CanvasRenderingContext2D,
   state: State,
   l: Layout,
-  opts: { attract: boolean; ended: boolean; calm: boolean },
+  opts: {
+    attract: boolean;
+    ended: boolean;
+    calm: boolean;
+    /** Both heads have a person on them. */
+    twoPlayer: boolean;
+    /** What the demo is pressing this tick, so the keys can show it. */
+    demo?: { player: Move; ai: Move };
+  },
 ): void {
   const { canvas } = ctx;
   const w = canvas.width / (window.devicePixelRatio || 1);
@@ -117,15 +128,15 @@ export function draw(
   drawPitch(ctx);
   drawGoal(ctx, "left");
   drawGoal(ctx, "right");
+  drawKeys(ctx, state, l, opts);
   drawBall(ctx, state);
-  drawHead(ctx, state.ai, AI_HEAD, false, false);
-  drawHead(
-    ctx,
-    state.player,
-    PLAYER_HEAD,
-    true,
-    opts.attract && !opts.calm,
-  );
+
+  // In attract nobody owns either head yet, so both are marked and both pulse:
+  // two heads going spare is the invitation. In a match the ring means "this
+  // one is yours", and the left head only earns one once a person takes it.
+  const claimable = opts.attract && !opts.calm;
+  drawHead(ctx, state.ai, AI_HEAD, false, opts.attract || opts.twoPlayer ? AI_RING : null, claimable);
+  drawHead(ctx, state.player, PLAYER_HEAD, true, PLAYER_RING, claimable);
   drawGoalMoment(ctx, state, opts.calm);
 
   ctx.restore(); // release the pitch clip
@@ -138,7 +149,7 @@ export function draw(
 
   ctx.restore();
 
-  if (l.buttons) drawButtons(ctx, l.buttons);
+  if (l.buttons) drawButtons(ctx, l.buttons, opts.attract ? opts.demo?.player : undefined);
   if (opts.ended) drawEnding(ctx, state, w, h);
 }
 
@@ -267,6 +278,7 @@ function drawHead(
   b: { x: number; y: number },
   colour: string,
   isPlayer: boolean,
+  ring: string | null,
   pulse: boolean,
 ): void {
   ctx.save();
@@ -275,12 +287,12 @@ function drawHead(
   ctx.fillStyle = "rgba(0,0,0,0.25)";
   ctx.fill();
 
-  if (isPlayer) {
+  if (ring) {
     // This one is yours. Said with a ring, not with a sentence.
     const t = pulse ? 1 + Math.sin(Date.now() / 260) * 0.06 : 1;
     ctx.beginPath();
     ctx.arc(b.x, b.y, HEAD_R * 1.16 * t, 0, Math.PI * 2);
-    ctx.strokeStyle = PLAYER_RING;
+    ctx.strokeStyle = ring;
     ctx.lineWidth = 2.5;
     ctx.globalAlpha = pulse ? 0.85 : 0.5;
     ctx.stroke();
@@ -307,6 +319,116 @@ function drawHead(
   ctx.beginPath();
   ctx.arc(b.x + facing * 7, b.y + 9, 8, 0.15 * Math.PI, 0.85 * Math.PI);
   ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * The keys that drive each head, drawn on the terrace beneath it and lighting
+ * up as the demo presses them.
+ *
+ * This is the whole answer to "how do I play" and to "how does anyone find the
+ * second player", under a brief that forbids saying either. A sentence is not
+ * allowed; a demonstration is the point of attract mode. So the game shows two
+ * heads going spare, each wired to keys you can watch working, and the moment
+ * you press one of them it is yours.
+ *
+ * The left head's keys stay up during a one-player match, dimmed. That is the
+ * standing invitation for a second person — otherwise nothing would ever
+ * suggest the seat is open once the demo has gone.
+ */
+function drawKeys(
+  ctx: CanvasRenderingContext2D,
+  state: State,
+  l: Layout,
+  opts: { attract: boolean; twoPlayer: boolean; demo?: { player: Move; ai: Move } },
+): void {
+  // Touch has thumb pads on screen already, and no keyboard to describe.
+  if (l.touch || opts.twoPlayer) return;
+
+  // The keys ride above their own head rather than sitting at a fixed spot,
+  // because the heads now roam the whole pitch: press D and the red keys go
+  // right with the red head, which says whose keys they are without a word.
+  const demo = opts.attract ? opts.demo : undefined;
+  if (opts.attract) {
+    keyGroup(ctx, overHead(state.ai), ["A", "D", "W"], demo?.ai, AI_HEAD, 0.95);
+    keyGroup(
+      ctx,
+      overHead(state.player),
+      ["\u2190", "\u2192", null],
+      demo?.player,
+      PLAYER_HEAD,
+      0.95,
+    );
+    return;
+  }
+  // A standing invitation for the second player, over the head still on offer.
+  keyGroup(ctx, overHead(state.ai), ["A", "D", "W"], undefined, AI_HEAD, 0.4);
+}
+
+const CAP_W = 34;
+const CAP_H = 26;
+const CAP_GAP = 7;
+/**
+ * High in the sky, because a jump reaches 126 units and the terrace does not.
+ * Drawn on the terrace first, the keys sat exactly in the arc of the jump they
+ * were describing, and a head would come down on top of its own controls.
+ */
+const CAP_BOTTOM = 100;
+
+/** Keeps a group of keys inside the pitch however far its head wanders. */
+const CAP_EDGE = CAP_W + CAP_GAP / 2 + 6;
+const overHead = (h: Body): number =>
+  Math.min(Math.max(h.x, CAP_EDGE), PITCH_W - CAP_EDGE);
+
+/** Steering below, jump above — the shape of the keys under a hand. */
+function keyGroup(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  glyphs: [string, string, string | null],
+  m: Move | undefined,
+  colour: string,
+  alpha: number,
+): void {
+  const topY = CAP_BOTTOM - CAP_H - CAP_GAP;
+  const leftX = cx - CAP_W - CAP_GAP / 2;
+  cap(ctx, leftX, CAP_BOTTOM, CAP_W, glyphs[0], m?.dx === -1, colour, alpha);
+  cap(ctx, cx + CAP_GAP / 2, CAP_BOTTOM, CAP_W, glyphs[1], m?.dx === 1, colour, alpha);
+
+  // A blank cap twice the width is a space bar. Drawing the word would be the
+  // one thing the brief rules out.
+  const wide = glyphs[2] === null;
+  const jumpW = wide ? CAP_W * 2 + CAP_GAP : CAP_W;
+  const jumpX = wide ? leftX : cx - CAP_W / 2;
+  cap(ctx, jumpX, topY, jumpW, glyphs[2] ?? "", m?.jump === true, colour, alpha);
+}
+
+function cap(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  glyph: string,
+  lit: boolean,
+  colour: string,
+  alpha: number,
+): void {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, CAP_H, 6);
+  ctx.fillStyle = lit ? colour : "rgba(255,255,255,0.08)";
+  ctx.fill();
+  ctx.strokeStyle = lit ? colour : "rgba(255,255,255,0.3)";
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+
+  if (glyph) {
+    ctx.fillStyle = lit ? "#101d2c" : "rgba(255,255,255,0.72)";
+    ctx.font = `600 ${CAP_H * 0.62}px system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(glyph, x + w / 2, y + CAP_H / 2 + 1);
+  }
   ctx.restore();
 }
 
@@ -338,18 +460,24 @@ function drawBall(ctx: CanvasRenderingContext2D, state: State): void {
   ctx.restore();
 }
 
+/**
+ * `m` is what the demo is pressing. Lighting the pads with it is the phone's
+ * half of the same lesson the keycaps teach on desktop: this control, that
+ * head. Undefined during a real match — a pad lights only under a thumb.
+ */
 function drawButtons(
   ctx: CanvasRenderingContext2D,
   b: NonNullable<Layout["buttons"]>,
+  m: Move | undefined,
 ): void {
-  chevron(ctx, b.left, -1);
-  chevron(ctx, b.right, 1);
-  pad(ctx, b.jump);
+  chevron(ctx, b.left, -1, m?.dx === -1);
+  chevron(ctx, b.right, 1, m?.dx === 1);
+  pad(ctx, b.jump, m?.jump === true);
 }
 
-function face(ctx: CanvasRenderingContext2D, r: Rect): void {
-  ctx.fillStyle = "rgba(255,255,255,0.14)";
-  ctx.strokeStyle = "rgba(255,255,255,0.4)";
+function face(ctx: CanvasRenderingContext2D, r: Rect, lit = false): void {
+  ctx.fillStyle = lit ? PLAYER_HEAD : "rgba(255,255,255,0.14)";
+  ctx.strokeStyle = lit ? PLAYER_HEAD : "rgba(255,255,255,0.4)";
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.roundRect(r.x, r.y, r.w, r.h, Math.min(20, r.w * 0.22));
@@ -357,12 +485,13 @@ function face(ctx: CanvasRenderingContext2D, r: Rect): void {
   ctx.stroke();
 }
 
-function chevron(ctx: CanvasRenderingContext2D, r: Rect, dir: 1 | -1): void {
-  face(ctx, r);
+function chevron(ctx: CanvasRenderingContext2D, r: Rect, dir: 1 | -1, lit: boolean): void {
+  face(ctx, r, lit);
   const cx = r.x + r.w / 2;
   const cy = r.y + r.h / 2;
   const s = r.w * 0.2;
-  ctx.strokeStyle = "rgba(255,255,255,0.92)";
+  // Dark ink on a lit pad, matching the keycaps: white on yellow washes out.
+  ctx.strokeStyle = lit ? "#101d2c" : "rgba(255,255,255,0.92)";
   ctx.lineWidth = Math.max(4, r.w * 0.07);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -374,12 +503,12 @@ function chevron(ctx: CanvasRenderingContext2D, r: Rect, dir: 1 | -1): void {
   ctx.stroke();
 }
 
-function pad(ctx: CanvasRenderingContext2D, r: Rect): void {
-  face(ctx, r);
+function pad(ctx: CanvasRenderingContext2D, r: Rect, lit: boolean): void {
+  face(ctx, r, lit);
   const cx = r.x + r.w / 2;
   const cy = r.y + r.h / 2;
   const s = r.w * 0.2;
-  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  ctx.fillStyle = lit ? "#101d2c" : "rgba(255,255,255,0.92)";
   ctx.beginPath();
   ctx.moveTo(cx, cy - s);
   ctx.lineTo(cx + s, cy + s * 0.6);
@@ -398,9 +527,25 @@ function drawEnding(
   ctx.fillRect(0, 0, w, h);
 
   const size = Math.min(w * 0.16, h * 0.2);
-  ctx.fillStyle = "#f6f7f9";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.font = `700 ${size}px system-ui, sans-serif`;
-  ctx.fillText(`${state.aiScore} – ${state.playerScore}`, w / 2, h / 2);
+
+  // Each number in its own head's colour, so "did I win" needs no reading —
+  // which side you were is the one thing a bare scoreline cannot tell you.
+  const left = String(state.aiScore);
+  const right = String(state.playerScore);
+  const dash = "  \u2013  ";
+  const total = ctx.measureText(left + dash + right).width;
+  let x = w / 2 - total / 2;
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = AI_HEAD;
+  ctx.fillText(left, x, h / 2);
+  x += ctx.measureText(left).width;
+  ctx.fillStyle = "rgba(246,247,249,0.6)";
+  ctx.fillText(dash, x, h / 2);
+  x += ctx.measureText(dash).width;
+  ctx.fillStyle = PLAYER_HEAD;
+  ctx.fillText(right, x, h / 2);
 }

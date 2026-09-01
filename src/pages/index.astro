@@ -23,7 +23,9 @@ const base = import.meta.env.BASE_URL;
   <body>
     <header class="hud">
       <h1>Head Soccer</h1>
-      <p class="score" id="score" aria-live="off">0 – 0</p>
+      <p class="score" id="score" aria-live="off">
+        <span id="score-left">0</span> – <span id="score-right">0</span>
+      </p>
       <div class="meta">
         <p class="clock" id="clock">1:30</p>
         <nav aria-label="Primary">
