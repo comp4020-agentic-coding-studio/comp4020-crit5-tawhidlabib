@@ -22,11 +22,25 @@ export const TICK_HZ = 60;
 export const MATCH_SECONDS = 90;
 export const MATCH_TICKS = MATCH_SECONDS * TICK_HZ;
 
-const GRAVITY_BALL = 0.34;
+// The ball hangs. This is the single number that decides whether the game is
+// fair to a person: at 0.34 a player a fifth of a second late lost every match
+// no matter what else was tuned, because there was no time to recover from a
+// missed header. At 0.26 there is.
+const GRAVITY_BALL = 0.26;
 const GRAVITY_HEAD = 0.62;
 const JUMP_V = -12.5;
 const PLAYER_SPEED = 5.2;
 const AI_SPEED = 4.6;
+
+/**
+ * Ticks of reaction time the AI gives away. It aims at where the ball was a
+ * beat ago, not where it is.
+ *
+ * Without this the AI reads the ball with zero latency, which a person holding
+ * a keyboard cannot: a player 200ms late went from winning half their matches
+ * to none of them. The handicap is what flattens that cliff.
+ */
+const AI_LAG = 7;
 
 const REST_WALL = 0.78;
 const REST_GROUND = 0.72;
@@ -34,9 +48,9 @@ const REST_HEAD = 0.62;
 const HEAD_KICK = 2.6;
 const AIR = 0.9995;
 const ROLL = 0.985;
-const MAX_BALL_SPEED = 16;
+const MAX_BALL_SPEED = 12;
 
-const RESET_TICKS = 45;
+export const RESET_TICKS = 45;
 const KICKOFF_Y = 120;
 
 export type Move = { dx: -1 | 0 | 1; jump: boolean };
@@ -57,6 +71,12 @@ export type State = {
   aiScore: number;
   /** > 0 while the ball is held at centre after a goal. The clock keeps running. */
   resetTicks: number;
+  /**
+   * Who just scored, for as long as resetTicks is counting down. The renderer
+   * needs it to celebrate at the right end; null at the opening kickoff, which
+   * nobody scored.
+   */
+  lastGoal: Side | null;
 };
 
 // A goal is a mouth at each end: open on the field side between GOAL_TOP and
@@ -104,6 +124,7 @@ export function initial(): State {
     playerScore: 0,
     aiScore: 0,
     resetTicks: RESET_TICKS,
+    lastGoal: null,
   };
 }
 
@@ -136,6 +157,7 @@ function clone(s: State): State {
     playerScore: s.playerScore,
     aiScore: s.aiScore,
     resetTicks: s.resetTicks,
+    lastGoal: s.lastGoal,
   };
 }
 
@@ -270,9 +292,11 @@ export function step(state: State, move: Move, opponent?: Move): State {
     if (ball.x < GOAL_DEPTH) {
       s.playerScore += 1;
       s.resetTicks = RESET_TICKS;
+      s.lastGoal = "player";
     } else if (ball.x > PITCH_W - GOAL_DEPTH) {
       s.aiScore += 1;
       s.resetTicks = RESET_TICKS;
+      s.lastGoal = "ai";
     }
   }
 
@@ -288,24 +312,30 @@ export function aiMove(state: State, side: Side): Move {
   const me = side === "player" ? state.player : state.ai;
   const ball = state.ball;
 
+  // Where the ball was AI_LAG ticks ago, rewound along its own velocity. Doing
+  // it this way keeps aiMove pure — no stored history — so attract mode can
+  // still drive both heads with it and the spec tests stay reproducible.
+  const sawX = ball.x - ball.vx * AI_LAG;
+  const sawY = ball.y - ball.vy * AI_LAG;
+
   // Stand on the goal side of the ball, so a contact sends it up the pitch.
   const behind = side === "player" ? 22 : -22;
   const home = side === "player" ? PITCH_W - 150 : 150;
   const mine =
-    side === "player" ? ball.x > PITCH_W / 2 - 60 : ball.x < PITCH_W / 2 + 60;
+    side === "player" ? sawX > PITCH_W / 2 - 60 : sawX < PITCH_W / 2 + 60;
 
   // A fast ball is harder to read. Without this the AI tracks perfectly and
   // is no fun to play; the error is what makes a hard shot worth taking.
   const pace = Math.hypot(ball.vx, ball.vy);
   const jitter = (unit(state.seed) - 0.5) * (18 + pace * 3.5);
-  const target = (mine ? ball.x + behind : home) + jitter;
+  const target = (mine ? sawX + behind : home) + jitter;
 
   const gap = target - me.x;
   const dx: -1 | 0 | 1 = gap > 6 ? 1 : gap < -6 ? -1 : 0;
 
   const onGround = me.y >= GROUND_Y - HEAD_R - 0.001;
-  const near = Math.abs(ball.x - me.x) < 74;
-  const headable = ball.y > 70 && ball.y < GROUND_Y - HEAD_R - 6;
+  const near = Math.abs(sawX - me.x) < 74;
+  const headable = sawY > 70 && sawY < GROUND_Y - HEAD_R - 6;
   const jump = onGround && near && headable && mine && state.resetTicks === 0;
 
   return { dx, jump };

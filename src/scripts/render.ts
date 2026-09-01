@@ -12,6 +12,7 @@ import {
   HEAD_R,
   PITCH_H,
   PITCH_W,
+  RESET_TICKS,
   type State,
 } from "./game.ts";
 
@@ -125,6 +126,7 @@ export function draw(
     true,
     opts.attract && !opts.calm,
   );
+  drawGoalMoment(ctx, state, opts.calm);
 
   ctx.restore(); // release the pitch clip
 
@@ -212,6 +214,52 @@ function drawGoal(ctx: CanvasRenderingContext2D, side: "left" | "right"): void {
   ctx.fillRect(x, GOAL_TOP - 6, GOAL_DEPTH, 6);
   const postX = side === "left" ? GOAL_DEPTH - 5 : PITCH_W - GOAL_DEPTH;
   ctx.fillRect(postX, GOAL_TOP - 6, 5, GROUND_Y - GOAL_TOP + 6);
+}
+
+/**
+ * A goal, celebrated at the end it went in and in the colour of whoever scored
+ * — so the moment says who without saying anything. Before this, a goal was
+ * only a number changing in the header, which you miss while watching the ball.
+ */
+function drawGoalMoment(
+  ctx: CanvasRenderingContext2D,
+  state: State,
+  calm: boolean,
+): void {
+  if (state.resetTicks <= 0 || !state.lastGoal) return;
+
+  // 1 at the instant it goes in, 0 by kickoff.
+  const t = state.resetTicks / RESET_TICKS;
+  const scoredLeft = state.lastGoal === "player";
+  const x = scoredLeft ? 0 : PITCH_W - GOAL_DEPTH;
+  const colour = scoredLeft ? PLAYER_HEAD : AI_HEAD;
+
+  ctx.save();
+
+  // The net lights up.
+  ctx.globalAlpha = 0.55 * t;
+  ctx.fillStyle = colour;
+  ctx.fillRect(x, GOAL_TOP, GOAL_DEPTH, GROUND_Y - GOAL_TOP);
+
+  // And a wash across the whole pitch, so it registers even if you are looking
+  // at the other end.
+  // Kept low: at 0.13 the wash turned the terrace a muddy grey, which read as
+  // a rendering fault rather than a celebration.
+  ctx.globalAlpha = 0.09 * t;
+  ctx.fillRect(0, 0, PITCH_W, PITCH_H);
+
+  if (!calm) {
+    const cx = scoredLeft ? GOAL_DEPTH : PITCH_W - GOAL_DEPTH;
+    const cy = (GOAL_TOP + GROUND_Y) / 2;
+    ctx.globalAlpha = 0.7 * t * t;
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, (1 - t) * 190 + 20, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.restore();
 }
 
 function drawHead(
