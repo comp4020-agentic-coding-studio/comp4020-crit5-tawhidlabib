@@ -12,6 +12,9 @@ export const PITCH_W = 800;
 export const PITCH_H = 400;
 export const GROUND_Y = 400;
 
+// A goal is a mouth at each end: open on the field side between GOAL_TOP and
+// the ground, closed above by a crossbar. The ball can only get in by crossing
+// the goal line through that mouth, which is what makes it read as a goal.
 export const GOAL_DEPTH = 54;
 export const GOAL_TOP = 300;
 
@@ -29,6 +32,14 @@ export const MATCH_TICKS = MATCH_SECONDS * TICK_HZ;
 const GRAVITY_BALL = 0.26;
 const GRAVITY_HEAD = 0.62;
 const JUMP_V = -12.5;
+
+/**
+ * A head never comes fully to rest: it lands and immediately hops again, about
+ * fourteen units, four times a second. Standing dead still on the turf reads as
+ * a paused game, and the bob is also why a stationary head still puts something
+ * into the ball.
+ */
+const IDLE_HOP = -4.2;
 const PLAYER_SPEED = 5.2;
 const AI_SPEED = 4.6;
 
@@ -42,6 +53,27 @@ const AI_SPEED = 4.6;
  */
 const AI_LAG = 7;
 
+/**
+ * How far from its own goal a head will chase the ball before giving up and
+ * going home, in pitch units.
+ *
+ * The pen came off the halfway line and this dial went with it. At 576 the AI
+ * hunts the ball into your half and a player 200ms late loses every single
+ * match — the same cliff as before, arrived at from the other direction. It
+ * still crosses; it just stops following you home.
+ */
+const AI_REACH = 460;
+
+/**
+ * How far goalside of the ball a head tries to stand, in pitch units.
+ *
+ * A head is 33 and a ball 13, so anything under 46 is already touching: aim
+ * short and you nudge the ball sideways instead of sending it up the pitch.
+ * The halfway wall used to supply the missing distance for free by shoving the
+ * head further back than it asked to stand.
+ */
+const BEHIND = 34;
+
 const REST_WALL = 0.78;
 const REST_GROUND = 0.72;
 const REST_HEAD = 0.62;
@@ -52,6 +84,20 @@ const MAX_BALL_SPEED = 12;
 
 export const RESET_TICKS = 45;
 const KICKOFF_Y = 120;
+
+/**
+ * How far into the conceding side's half the restart drops, in pitch units.
+ *
+ * Football's rule, and it is here for football's reason. While the heads were
+ * penned into their own halves neither could reach the centre spot, so a
+ * restart at the centre was nobody's ball. The moment they could cross, that
+ * same restart became a footrace — and a machine with no reaction time wins a
+ * footrace 99 times out of 100. Eighteen goals a match is eighteen of them.
+ *
+ * Giving the restart to whoever just conceded makes it self-balancing: falling
+ * behind hands you the ball.
+ */
+const KICKOFF_BIAS = 120;
 
 export type Move = { dx: -1 | 0 | 1; jump: boolean };
 export type Outcome = "playing" | "won" | "lost" | "finished";
@@ -79,13 +125,12 @@ export type State = {
   lastGoal: Side | null;
 };
 
-// A goal is a mouth at each end: open on the field side between GOAL_TOP and
-// the ground, closed above by a crossbar. The ball can only get in by crossing
-// the goal line through that mouth, which is what makes it read as a goal.
-const PLAYER_MIN_X = PITCH_W / 2 + HEAD_R;
-const PLAYER_MAX_X = PITCH_W - HEAD_R;
-const AI_MIN_X = HEAD_R;
-const AI_MAX_X = PITCH_W / 2 - HEAD_R;
+// Both heads roam the whole pitch. They were penned into their own half to
+// begin with, which is tidy and dull: you can never chase a loose ball down,
+// the two heads can never contest one, and the halfway line may as well be a
+// wall. Letting them cross is what turns two paddles into a game.
+const HEAD_MIN_X = HEAD_R;
+const HEAD_MAX_X = PITCH_W - HEAD_R;
 
 const MOVES: readonly Move[] = [
   { dx: -1, jump: false },
@@ -128,6 +173,16 @@ export function initial(): State {
   };
 }
 
+/**
+ * Where the restart drops: into the half of whoever just conceded. At the
+ * opening whistle nobody has, so it is the centre spot and a fair race.
+ */
+function kickoffX(lastGoal: Side | null): number {
+  if (!lastGoal) return PITCH_W / 2;
+  // lastGoal names the scorer, so the other side is the one restarting.
+  return lastGoal === "player" ? PITCH_W / 2 - KICKOFF_BIAS : PITCH_W / 2 + KICKOFF_BIAS;
+}
+
 export function moves(_state: State): readonly Move[] {
   return MOVES;
 }
@@ -161,10 +216,24 @@ function clone(s: State): State {
   };
 }
 
-function moveHead(h: Body, m: Move, speed: number, minX: number, maxX: number): void {
+/** Apex of the idle hop, from v^2 = 2*g*h. */
+const HOP_PEAK = (IDLE_HOP * IDLE_HOP) / (2 * GRAVITY_HEAD);
+
+/**
+ * Low enough to jump from.
+ *
+ * This has to be a band, not a line. Once a head is always bobbing it is almost
+ * never exactly on the turf, and testing for that would have quietly eaten most
+ * jump presses — the bug would have read as unresponsive controls, not as a
+ * physics change.
+ */
+function grounded(h: Body): boolean {
+  return h.y >= GROUND_Y - HEAD_R - HOP_PEAK - 1;
+}
+
+function moveHead(h: Body, m: Move, speed: number): void {
   h.vx = m.dx * speed;
-  const onGround = h.y >= GROUND_Y - HEAD_R - 0.001;
-  if (m.jump && onGround) h.vy = JUMP_V;
+  if (m.jump && grounded(h)) h.vy = JUMP_V;
 
   h.vy += GRAVITY_HEAD;
   h.x += h.vx;
@@ -172,16 +241,51 @@ function moveHead(h: Body, m: Move, speed: number, minX: number, maxX: number): 
 
   if (h.y > GROUND_Y - HEAD_R) {
     h.y = GROUND_Y - HEAD_R;
-    h.vy = 0;
+    h.vy = IDLE_HOP;
   }
-  if (h.x < minX) {
-    h.x = minX;
+  if (h.x < HEAD_MIN_X) {
+    h.x = HEAD_MIN_X;
     h.vx = 0;
   }
-  if (h.x > maxX) {
-    h.x = maxX;
+  if (h.x > HEAD_MAX_X) {
+    h.x = HEAD_MAX_X;
     h.vx = 0;
   }
+}
+
+/**
+ * Heads are solid to each other. They could not touch while each was penned
+ * into its own half; the moment they can cross, two heads sliding through one
+ * another in front of a goal reads as a bug rather than a rule.
+ */
+function headHead(a: Body, b: Body): void {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const min = HEAD_R * 2;
+  const d2 = dx * dx + dy * dy;
+  if (d2 >= min * min) return;
+
+  const d = Math.sqrt(d2);
+  // Exactly coincident: shove them apart along the pitch rather than dividing
+  // by zero.
+  const nx = d === 0 ? 1 : dx / d;
+  const ny = d === 0 ? 0 : dy / d;
+  const push = (min - d) / 2;
+
+  a.x -= nx * push;
+  a.y -= ny * push;
+  b.x += nx * push;
+  b.y += ny * push;
+  settle(a);
+  settle(b);
+}
+
+/** Put a head back inside the pitch after being shoved. */
+function settle(h: Body): void {
+  if (h.x < HEAD_MIN_X) h.x = HEAD_MIN_X;
+  if (h.x > HEAD_MAX_X) h.x = HEAD_MAX_X;
+  if (h.y > GROUND_Y - HEAD_R) h.y = GROUND_Y - HEAD_R;
+  if (h.y < HEAD_R) h.y = HEAD_R;
 }
 
 function headBall(ball: Body, h: Body): void {
@@ -235,14 +339,15 @@ export function step(state: State, move: Move, opponent?: Move): State {
   s.seed = nextSeed(s.seed);
   s.tick += 1;
 
-  moveHead(s.player, move, PLAYER_SPEED, PLAYER_MIN_X, PLAYER_MAX_X);
-  moveHead(s.ai, opponent ?? aiMove(state, "ai"), AI_SPEED, AI_MIN_X, AI_MAX_X);
+  moveHead(s.player, move, PLAYER_SPEED);
+  moveHead(s.ai, opponent ?? aiMove(state, "ai"), AI_SPEED);
+  headHead(s.player, s.ai);
 
   if (s.resetTicks > 0) {
     // Ball held at centre. The clock does not stop — that is what makes the
     // match provably finite rather than hopefully finite.
     s.resetTicks -= 1;
-    s.ball = { x: PITCH_W / 2, y: KICKOFF_Y, vx: 0, vy: 0 };
+    s.ball = { x: kickoffX(s.lastGoal), y: KICKOFF_Y, vx: 0, vy: 0 };
     if (s.resetTicks === 0) s.ball.vx = (unit(s.seed) - 0.5) * 1.5;
     return s;
   }
@@ -319,10 +424,17 @@ export function aiMove(state: State, side: Side): Move {
   const sawY = ball.y - ball.vy * AI_LAG;
 
   // Stand on the goal side of the ball, so a contact sends it up the pitch.
-  const behind = side === "player" ? 22 : -22;
+  const behind = side === "player" ? BEHIND : -BEHIND;
   const home = side === "player" ? PITCH_W - 150 : 150;
-  const mine =
-    side === "player" ? sawX > PITCH_W / 2 - 60 : sawX < PITCH_W / 2 + 60;
+
+  // Chase what is near my goal, and anything travelling towards it however far
+  // away it is. Position alone made the head flip between chasing and going
+  // home every time the ball crossed one line, which is survivable against a
+  // wall and ruinous on an open pitch: you spend the match running the wrong
+  // way.
+  const ownGoal = side === "player" ? PITCH_W : 0;
+  const incoming = side === "player" ? ball.vx > 0 : ball.vx < 0;
+  const mine = Math.abs(sawX - ownGoal) < AI_REACH || incoming;
 
   // A fast ball is harder to read. Without this the AI tracks perfectly and
   // is no fun to play; the error is what makes a hard shot worth taking.
@@ -333,10 +445,9 @@ export function aiMove(state: State, side: Side): Move {
   const gap = target - me.x;
   const dx: -1 | 0 | 1 = gap > 6 ? 1 : gap < -6 ? -1 : 0;
 
-  const onGround = me.y >= GROUND_Y - HEAD_R - 0.001;
   const near = Math.abs(sawX - me.x) < 74;
   const headable = sawY > 70 && sawY < GROUND_Y - HEAD_R - 6;
-  const jump = onGround && near && headable && mine && state.resetTicks === 0;
+  const jump = grounded(me) && near && headable && mine && state.resetTicks === 0;
 
   return { dx, jump };
 }
