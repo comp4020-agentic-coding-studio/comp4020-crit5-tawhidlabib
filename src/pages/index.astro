@@ -1,40 +1,44 @@
 ---
 import "../styles/styles.css";
+
+const base = import.meta.env.BASE_URL;
 ---
+
 <!doctype html>
 <html lang="en-AU">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>COMP4020 prototype</title>
+    <title>Head Soccer</title>
     <meta
       name="description"
-      content="Replace this with one sentence saying what this page is. A search result and a link preview both show it."
+      content="Head Soccer: two heads, one ball, ninety seconds. A small browser game for COMP4020."
     />
+    <meta name="theme-color" content="#0d1b2a" />
 
-    <!--
-      The link-preview card: public/card.png, 1200x630 --- replace it. The URL
-      resolves against this page, like any link. No og:title/og:description:
-      scrapers fall back to the <title> and description above.
-    -->
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="./card.png" />
+    <meta property="og:image" content={`${base}card.png`} />
     <meta name="twitter:card" content="summary_large_image" />
-
   </head>
   <body>
-    <header>
-      <nav aria-label="Primary">
-        <a href="./">Home</a>
-      </nav>
+    <header class="hud">
+      <h1>Head Soccer</h1>
+      <p class="score" id="score" aria-live="off">0 – 0</p>
+      <div class="meta">
+        <p class="clock" id="clock">1:30</p>
+        <nav aria-label="Primary">
+          <a
+            href="https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-tawhidlabib"
+            >Source</a
+          >
+        </nav>
+      </div>
     </header>
+
     <main>
-      <h1>COMP4020 prototype</h1>
-      <p>
-        Replace this with your prototype. This week's brief is on the course website;
-        <code>spec/README.md</code> explains how the checks in this repo relate to it.
-      </p>
+      <canvas id="pitch">Head Soccer</canvas>
     </main>
+
     <script src="../scripts/main.ts"></script>
   </body>
 </html>

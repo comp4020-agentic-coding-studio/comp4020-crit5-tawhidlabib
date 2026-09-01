@@ -1,16 +1,131 @@
+:root {
+  --ink: #eef1f6;
+  --ink-dim: #9aa7b8;
+  --bg: #0a1420;
+  --bar: #101f30;
+  --rule: rgba(255, 255, 255, 0.1);
+  --accent: #ffd166;
+  --hud: clamp(2.75rem, 7vh, 3.5rem);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
-  padding: 2rem;
-  font-family: system-ui, sans-serif;
-  line-height: 1.6;
-  color: #1a1a1a;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* The game owns the gestures inside it; the page itself never scrolls. */
+  overscroll-behavior: none;
+}
+
+.hud {
+  position: relative;
+  flex: 0 0 var(--hud);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 clamp(0.75rem, 3vw, 1.5rem);
+  background: var(--bar);
+  border-bottom: 1px solid var(--rule);
+}
+
+.hud h1 {
+  margin: 0;
+  font-size: clamp(0.8rem, 2.4vw, 1.05rem);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.score {
+  margin: 0;
+  grid-column: 2;
+  font-size: clamp(1.15rem, 4.5vw, 1.6rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.meta {
+  grid-column: 3;
+  justify-self: end;
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+}
+
+.clock {
+  margin: 0;
+  font-size: clamp(0.85rem, 2.6vw, 1.1rem);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+}
+
+.hud nav {
+  /* Present for the landmark and for anyone who wants the source; it should
+     never compete with the pitch for attention. */
+  font-size: 0.66rem;
+}
+
+.hud nav a {
+  color: var(--ink-dim);
+  text-decoration: none;
+  opacity: 0.55;
+}
+
+.hud nav a:hover,
+.hud nav a:focus-visible {
+  opacity: 1;
+  text-decoration: underline;
 }
 
 main {
-  max-width: 40rem;
-  margin: 0 auto;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
-a {
-  color: #0b5fff;
+#pitch {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Dragging a thumb across the buttons must not scroll or zoom the page. */
+  touch-action: none;
+  cursor: default;
+}
+
+@media (max-width: 480px) {
+  .hud {
+    grid-template-columns: auto 1fr auto;
+    gap: 0.5rem;
+  }
+
+  /* At 390 wide the clock is what a player glances at mid-rally; the source
+     link is not. Stack them so the clock keeps its size. */
+  .meta {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0;
+    line-height: 1.15;
+  }
+
+  .hud nav {
+    font-size: 0.5rem;
+  }
 }
