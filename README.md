@@ -1,67 +1,58 @@
-# COMP4020 static prototype template
+# Head Soccer
 
-A starter template for static-site prototypes in **COMP4020 / COMP8020 Agentic
-Coding Studio**. The course provisions a repo from this template for each
-deliverable --- you don't create it yourself. The `start` course skill clones it
-for you; from there, build your prototype and deploy it to GitHub Pages.
+Two heads, one ball, ninety seconds. A small browser game built for **C5** of
+COMP4020 / COMP8020 Agentic Coding Studio.
 
-## CI and Pages only turn on when you ship
+There is a goal at each end and a head in front of each one. Everything that
+happens, happens by heading the ball. The other head is played by the machine,
+and it is beatable — which took measuring rather than guessing, and is written
+up in [`PROCESS.md`](PROCESS.md).
 
-Your repo starts private, and both CI jobs (`check` and `deploy`) are gated on
-it being public. While private, a push to `main` runs nothing in CI ---
-`pnpm check` (below) is your feedback loop until then. When you're ready, the
-course's `/ship` skill flips the repo public, turns on GitHub Pages, and
-dispatches the deploy for you; there's nothing to configure in the Pages
-settings yourself. From that point, every push to `main` builds and deploys, and
-the deploy step prints your live URL and checks it returns 200.
+The page says nothing about any of this on purpose: the brief for this
+deliverable forbids telling the player anything, on screen or off. The game
+demonstrates itself and hands over the moment you join in.
+
+## Running it
+
+```sh
+mise install       # the pinned Node and pnpm for this repo
+pnpm install
+pnpm dev             # local dev server, served under the Pages base path
+pnpm check           # typecheck, build, and every spec suite
+pnpm check:evidence  # the separate process-evidence gate CI runs before shipping
+pnpm build           # produce dist/, which is what deploys
+```
+
+`mise` is the course's runtime manager; any other is fine if it provides the
+versions in `mise.toml`.
+
+## Layout
+
+Four modules under `src/scripts/`, split so that game logic can be tested in
+Node without a browser anywhere near it:
+
+- `game.ts` — physics, scoring, clock and the opponent. No DOM at all, which is
+  what lets `spec/crit-5.test.ts` import it directly and run 200 seeded matches
+  to prove play always reaches an ending and can be lost.
+- `render.ts` — draws a state to a 2D context. Holds no game logic.
+- `input.ts` — keyboard and touch, collapsed into the one move type.
+- `main.ts` — the fixed-timestep loop that wires the three together.
+
+The simulation runs in logical pitch units at a fixed 60Hz and the renderer
+scales to whatever canvas it is given, so resizing mid-match cannot perturb it.
+Nothing calls `Math.random`: all variation comes from a seed carried in the
+state, which is what makes the seeded matches in the spec suite reproducible.
+
+Elsewhere: `spec/` holds the shipped invariants and this deliverable's contract;
+`CLAUDE.md` is the harness, carried forward across the course and grown each
+week; `.github/workflows/checks.yml` runs the same checks plus links, secrets
+and the Pages deploy once the repo is public.
 
 ## What gets marked
 
-The deployed site is the deliverable, assessed live in Chrome at two fixed
-viewports --- see the course website's
-[assessment page](https://comp.anu.edu.au/courses/comp4020-agentic-coding-studio/topics/assessment/#marking-environment)
-for the details.
-
-## Quick start
-
-```sh
-mise install       # supported path: install the template's Node and pnpm
-pnpm install
-pnpm dev             # local dev server
-pnpm check           # most of what CI runs (links, secrets and deploy are CI-only)
-pnpm check:evidence  # the process-evidence check CI runs before you ship
-pnpm build           # produce dist/ (what gets deployed)
-
-# reproduce CI's links check before you push
-pnpm dlx linkinator ./dist --silent --skip "^https?://(?!localhost|127)"
-```
-
-`mise` is the course's recommended runtime manager. If you use another manager
-or the official installers, that is fine: provide the Node and pnpm versions in
-`mise.toml`, then run the same commands. Tutor support reproduces runtime
-problems with mise.
-
-## What's here
-
-- `index.html`, `styles.css`, `main.ts` --- a minimal starting site. Replace it.
-- `mise.toml` --- the tested Node and pnpm versions for this template.
-- `spec/` --- what the checks are for (`README.md`) and the shipped invariants
-  (`invariants.test.ts`); the spec tests you write live alongside them.
-- `CLAUDE.md` --- orients whoever works in this repo, you or a coding agent.
-  Yours to grow.
-- `PROCESS.md` --- a template for your process overview, showing the
-  cited-moment format. Replace it with your own; `pnpm check:evidence` verifies
-  your citations resolve.
-- `.github/workflows/checks.yml` --- the CI sensors that run on every push once
-  your repo is public, and the GitHub Pages deploy.
-- `.githooks/pre-commit` --- blocks any commit that contains something shaped
-  like an API key, so your COMP4020 key can't end up in a public repo. Installed
-  automatically by `pnpm install`.
-
-This template is SSG-agnostic: plain HTML/CSS/TypeScript on Vite, so you can add
-Astro, Eleventy, or any static generator later without changing how it deploys.
-The course plugin's `stack` skill performs the swap for you — to the course
-default (Astro) or bare HTML/CSS — with the Pages base path, lockfile, and CI
-link check handled.
-
-See the course site for how the checks map to each week of the course.
+The deployed site, live in Chrome at two fixed viewports — see the course
+website's
+[assessment page](https://comp.anu.edu.au/courses/comp4020-agentic-coding-studio/topics/assessment/#marking-environment).
+Both viewports were treated as first-class here: the phone layout puts thumb
+pads on the canvas, and both were verified by driving real key and touch events
+at the page rather than by looking at screenshots.
