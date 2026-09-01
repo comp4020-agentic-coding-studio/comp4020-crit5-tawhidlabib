@@ -62,7 +62,14 @@ function seeded(seed: number): () => number {
   };
 }
 
-const MAX_STEPS = 5000;
+// A 90-second match at 60Hz is 5400 ticks. This budget was 5000 when it was
+// written, before the match length was chosen — every playout would have
+// reported "never ended" for a reason that is arithmetic, not a bug. Raising a
+// termination budget to fit the designed match is not the same as weakening
+// the assertion, which is unchanged: play must always reach an ending.
+const MAX_STEPS = 8000;
+
+const PLAYOUTS = 200;
 
 // Play one random game. Returns the ending, or null if it never ended.
 async function playout(seed: number): Promise<Outcome | null> {
@@ -77,6 +84,17 @@ async function playout(seed: number): Promise<Outcome | null> {
     state = step(state, legal[Math.floor(random() * legal.length)]);
   }
   return null;
+}
+
+// Two tests below ask about the same 200 playouts. Simulate them once.
+let cached: (Outcome | null)[] | undefined;
+async function allPlayouts(): Promise<(Outcome | null)[]> {
+  if (!cached) {
+    const results: (Outcome | null)[] = [];
+    for (let seed = 1; seed <= PLAYOUTS; seed++) results.push(await playout(seed));
+    cached = results;
+  }
+  return cached;
 }
 
 describe("C5: the game can be lost", () => {
@@ -100,22 +118,21 @@ describe("C5: the game can be lost", () => {
     expect(moves(initial()).length).toBeGreaterThan(0);
   });
 
-  it("always ends: 200 random playouts all reach an ending", async () => {
-    for (let seed = 1; seed <= 200; seed++) {
-      const ending = await playout(seed);
+  it(`always ends: ${PLAYOUTS} random playouts all reach an ending`, async () => {
+    const endings = await allPlayouts();
+    endings.forEach((ending, i) => {
       expect(
         ending,
-        `playout ${seed} never ended — play must finish somewhere`,
+        `playout ${i + 1} never ended — play must finish somewhere`,
       ).not.toBeNull();
       expect(ending).not.toBe("playing");
-    }
+    });
   });
 
   it("can be lost: some line of play reaches a losing end", async () => {
     // The whole point of the week. An instrument cannot be played wrong; a
     // game can. If every playout wins, there are no stakes.
-    const endings = new Set<Outcome | null>();
-    for (let seed = 1; seed <= 200; seed++) endings.add(await playout(seed));
+    const endings = new Set(await allPlayouts());
     expect(
       endings.has("lost"),
       `no random playout was ever lost (saw: ${[...endings].join(", ")}) — a wrong move must be possible`,
