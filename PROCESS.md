@@ -78,6 +78,61 @@ the head goalside instead of chasing, so the model is not monotonic in skill. It
 is evidence the cliff flattened, not proof of the right difficulty. A person
 playing it settles that, which is moment 5.
 
+### 5. A person played it, and the wall was load-bearing
+
+I handed the game over and got four things back at once: let the heads cross
+halfway, stop them standing still, make it clearer how to play, and let two
+people share the keyboard. Three were straightforward. Removing the halfway
+wall took the game from a 43% win rate to **zero**, and finding out why is the
+most useful hour of the week.
+
+My instinct was the same one moment 4 was supposed to have cured, and I relapsed
+into it anyway: four constant sweeps — AI reach × lag × speed, hop × kick ×
+gravity, gravity × speeds, speed × ball cap × gravity. Sixty-odd configurations.
+Not one moved the number. When a whole search space is flat, the model is wrong,
+not the coordinates.
+
+So I stopped tuning and started instrumenting, and measurement killed my first
+three explanations:
+
+| Hypothesis | Measurement | Verdict |
+|---|---|---|
+| The new idle bounce broke it | Set `IDLE_HOP = 0`: still 100% losses | dead |
+| Scoring got easier (9 → 19 goals) | Ran the pre-change `game.ts` out of git: **19.4 goals both sides** of the change | dead — I had misread a per-side number as a match total |
+| The player over-commits without a wall | Mean player x: 550 crossing vs 558 penned | dead — statistically identical |
+
+The one I had not thought to measure was who touches the ball first after a
+restart. The AI won **99%** of kickoffs with crossing enabled, against 45% with
+the wall. The wall had been keeping the centre spot out of reach of *both*
+heads; once they could cross, every restart became a footrace, and a
+zero-latency machine wins every footrace. Eighteen goals a match, eighteen of
+them decided before anyone moved.
+
+The fix is football's own rule and it self-balances: the ball restarts in the
+half of whoever just conceded. A second cause fell out of the same reading —
+the AI's positioning logic had been leaning on the wall to supply distance it
+never asked for, so it now picks chase-versus-home from the ball's *direction*
+rather than which side of a line it sits on, and stands a full head-plus-ball
+goalside instead of half that.
+
+Then I checked the thing moment 4 had left open, properly this time: not one
+latency number but the curve. A reactive player wins 83/40/23% at 67/134/200ms;
+one that anticipates wins 90/73/40%. Real keyboard play is 100–150ms with
+anticipation. A slope, not a cliff — and crossing is exactly what makes
+anticipating pay, which is the argument for the change the tuning never found.
+
+Cited:
+[`764683f`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-tawhidlabib/commit/764683f),
+[`742d9b8`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit5-tawhidlabib/commit/742d9b8)
+
+Two smaller things the same session, both from looking rather than checking.
+`grounded()` had to be a band rather than a line, because a permanently bobbing
+head is almost never exactly on the turf and an equality test would have
+swallowed most jump presses — read as broken controls, caused by physics. And
+the keycaps that teach the controls were first drawn on the terrace, which is
+precisely the height a jump reaches: the head landed on top of its own
+instructions. `pnpm check` was green for both.
+
 ## Before you ship
 
 `pnpm check` runs typecheck, build and all three suites. `pnpm check:evidence`
